@@ -1,0 +1,190 @@
+<?php
+
+use Drupal\smartsheet\SmartsheetAPI;
+use Drupal\smartsheet\Exception as Exception;
+
+/**
+ * Implements hook_menu().
+ */
+function smartsheet_ui_menu() {
+  $items = array(
+    'admin/config/services/smartsheet' => array(
+      'title' => 'Smartsheet API',
+      'description' => 'Configure Smartsheet API settings.',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('smartsheet_ui_settings'),
+      'access callback' => 'user_access',
+      'access arguments' => array('administer smartsheet'),
+    ),
+    'admin/config/services/smartsheet/settings' => array(
+      'title' => t('Settings'),
+      'type' => MENU_DEFAULT_LOCAL_TASK,
+    ),
+    'admin/config/services/smartsheet/overview' => array(
+      'title' => t('Overview'),
+      'page callback' => 'smartsheet_ui_overview',
+      'access callback' => 'smartsheet_ui_user_access',
+      'access arguments' => array('administer smartsheet'),
+      'type' => MENU_LOCAL_TASK,
+    ),
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function smartsheet_ui_permission() {
+  $permissions = array(
+    'administer smartsheet' => array(
+      'title' => t('Administer Smartsheet'),
+      'description' => t('Manage Smartsheet API configuration.'),
+    ),
+  );
+  return $permissions;
+}
+
+/**
+ * Custom access callback for hook_menu().
+ */
+function smartsheet_ui_user_access($permission, $account = NULL) {
+  $token = variable_get('smartsheet_access_token');
+  return smartsheet_ui_valid_token($token) && user_access($permission, $account);
+}
+
+/**
+ * Validates if a token is usable.
+ */
+function smartsheet_ui_valid_token($token) {
+  $access = &drupal_static(__FUNCTION__);
+  if (!isset($access)) {
+    try {
+      $instance = SmartsheetAPI::instance();
+      if ($response = $instance->get('users/me')) {
+        $access = TRUE;
+      }
+    } catch (Exception\SmartsheetException $e) {
+      $access = FALSE;
+    }
+  }
+  return $access;
+}
+
+/**
+ * Menu callback; Admin settings form.
+ */
+function smartsheet_ui_settings($form, &$form_state) {
+  $form['smartsheet_access_token'] = array(
+    '#title' => t('Smartsheet access token'),
+    '#type' => 'textfield',
+    '#default_value' => variable_get('smartsheet_access_token'),
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Menu callback; List sheets and other resources.
+ */
+function smartsheet_ui_overview() {
+  $output = array(
+    'sheets' => array(
+      '#type' => 'fieldset',
+      '#title' => t('Sheets'),
+      '#attributes' => array('class' => array('collapsible')),
+      'content' => array(
+        '#theme' => 'table',
+        '#header' => array(
+          'id' => t('ID'),
+          'name' => t('Name'),
+          'access' => t('Access level'),
+          'link' => t('Permalink'),
+        ),
+        '#rows' => array(),
+        '#empty' => t('There is no sheet available using the configured token.'),
+      ),
+    ),
+    'folders' => array(
+      '#type' => 'fieldset',
+      '#title' => t('Folders'),
+      '#attributes' => array('class' => array('collapsible')),
+      'content' => array(
+        '#theme' => 'table',
+        '#header' => array(
+          'id' => t('ID'),
+          'name' => t('Name'),
+          'link' => t('Permalink'),
+        ),
+        '#rows' => array(),
+        '#empty' => t('There is no folder available using the configured token.'),
+      ),
+    ),
+    'workspaces' => array(
+      '#type' => 'fieldset',
+      '#title' => t('Workspaces'),
+      '#attributes' => array('class' => array('collapsible')),
+      'content' => array(
+        '#theme' => 'table',
+        '#header' => array(
+          'id' => t('ID'),
+          'name' => t('Name'),
+          'access' => t('Access level'),
+          'link' => t('Permalink'),
+        ),
+        '#rows' => array(),
+        '#empty' => t('There is no workspace available using the configured token.'),
+      ),
+    ),
+    '#attached' => array('js' => array('misc/collapse.js', 'misc/form.js')),
+  );
+
+  try {
+    $instance = SmartsheetAPI::instance();
+    $response = $instance->get('home', array(), array('cache' => CACHE_TEMPORARY));
+
+    if (!empty($response->sheets)) {
+      foreach ($response->sheets as $sheet) {
+        $output['sheets']['content']['#rows'][] = array(
+          'id' => $sheet->id,
+          'name' => $sheet->name,
+          'access' => $sheet->accessLevel,
+          'link' => l(t('link'), $sheet->permalink, array('attributes' => array('target' => '_blank'))),
+        );
+      }
+    }
+
+    if (!empty($response->folders)) {
+      foreach ($response->folders as $folder) {
+        $output['folders']['#rows'][] = array(
+          'id' => $folder->id,
+          'name' => $folder->name,
+          'link' => l(t('link'), $folder->permalink, array('attributes' => array('target' => '_blank'))),
+        );
+      }
+    }
+
+    if (!empty($response->workspaces)) {
+      foreach ($response->workspaces as $workspace) {
+        $output['workspaces']['#rows'][] = array(
+          'id' => $workspace->id,
+          'name' => $workspace->name,
+          'access' => $workspace->accessLevel,
+          'link' => l(t('link'), $workspace->permalink, array('attributes' => array('target' => '_blank'))),
+        );
+      }
+    }
+  } catch (Exception\SmartsheetException $e) {
+    drupal_set_message(t('Smartsheet API error: %error.', array(
+      '%error' => $e->getMessage(),
+    )), 'error');
+  }
+
+  if (empty($output)) {
+    $output['default'] = array(
+      '#markup' => t('There is no resource available. However, the access token is correctly configured.'),
+    );
+  }
+
+  return $output;
+}

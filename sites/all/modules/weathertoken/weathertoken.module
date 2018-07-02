@@ -1,0 +1,40 @@
+<?php
+/**
+* Provide information about our custom tokens.
+*
+* @see http://api.drupal.org/api/drupal/modules--system--system.api.php/function/hook_token_info/7
+* @see http://www.benmarshall.me/drupal-custom-tokens
+* @return array
+*   An associative array of available tokens and token types.
+*/
+
+function weathertoken_token_info() {
+  $info['tokens']['weather']['weather-data'] = array(
+     'name' => t('Weather Data'),
+     'description' => t('Data from Darksky forecast'),
+   );
+   return $info;
+}
+
+
+/**
+ * Implements hook_tokens().
+ */
+function jay_tokens_tokens($type, $tokens, array $data = array(), array $options = array()) {
+
+  $replacements = array();
+
+  if ($type == 'jay_token') {
+    foreach ($tokens as $name => $original) {
+      switch ($name) {
+        case 'product_session':
+          $replacements[$original] = $_SESSION["j_product_name"];
+        break;
+
+      }
+    }
+  }
+
+  return $replacements;
+}
+?>

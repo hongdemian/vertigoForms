@@ -1,0 +1,38 @@
+<?php
+
+/**
+ * @file
+ * Makes module dependencies on a module list page clickable.
+ */
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function better_module_dependencies_form_system_modules_alter(&$form, $form_state, $form_id) {
+  $module_path = drupal_get_path('module', 'better_module_dependencies');
+  $form['#attached']['js'][] = $module_path . '/js/better_module_dependencies.js';
+  $form['#attached']['css'][] = $module_path . '/css/better_module_dependencies.css';
+  foreach (element_children($form['modules']) as $package) {
+    foreach (element_children($form['modules'][$package]) as $module) {
+      $variables = array(
+        'module' => $form['modules'][$package][$module],
+      );
+      $form['modules'][$package][$module] = theme('better_module_dependencies_add_selectors', $variables);
+    }
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function better_module_dependencies_theme() {
+  return array(
+    'better_module_dependencies_add_selectors' => array(
+      'file' => 'better_module_dependencies.theme.inc',
+      'function' => 'theme_better_module_dependencies_add_selectors',
+      'variables' => array(
+        'module' => NULL,
+      ),
+    ),
+  );
+}

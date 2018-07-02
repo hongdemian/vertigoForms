@@ -1,0 +1,16 @@
+{
+    "name": "drupal/smartsheet",
+    "description": "Integration module for Smartsheet's HTTP API.",
+    "type": "drupal-module",
+    "license": "GPL-2.0+",
+    "support": {
+        "issues": "https://www.drupal.org/project/issues/smartsheet",
+        "source": "http://drupalcode.org/smartsheet"
+    },
+    "authors": [
+        {
+            "name": "Pierre Buyle",
+            "email": "buyle@floe.ca"
+        }
+    ]
+}

@@ -1,0 +1,7 @@
+name = Weather token widget
+
+description = Provides tokens from Dark Sky forecast
+
+core = 7.x
+
+

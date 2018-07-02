@@ -1,0 +1,36 @@
+<?php
+
+use Drupal\smartsheet\SmartsheetAPI;
+use Drupal\smartsheet\Exception as Exception;
+
+/**
+ * Implements hook_requirements().
+ */
+function smartsheet_requirements($phase) {
+  $requirements = array();
+
+  if ($phase == 'runtime') {
+    $requirements['smartsheet_authentication']['title'] = t('Smartsheet API Authentication');
+
+    if (empty(variable_get('smartsheet_access_token'))) {
+      $requirements['smartsheet_authentication']['severity'] = REQUIREMENT_WARNING;
+      $requirements['smartsheet_authentication']['value'] = t('Access token not configured');
+      $requirements['smartsheet_authentication']['description'] = t('Please configure the Smartsheet API access token.');
+    }
+    else {
+      try {
+        $instance = SmartsheetAPI::instance();
+        $response = $instance->get('users/me');
+
+        $requirements['smartsheet_authentication']['severity'] = REQUIREMENT_OK;
+        $requirements['smartsheet_authentication']['value'] = t('Access token configured and working');
+      } catch (Exception\SmartsheetException $e) {
+        $requirements['smartsheet_authentication']['severity'] = REQUIREMENT_ERROR;
+        $requirements['smartsheet_authentication']['value'] = $e->getMessage();
+        $requirements['smartsheet_authentication']['description'] = t('Authentication failed, please check the access token.');
+      }
+    }
+  }
+
+  return $requirements;
+}

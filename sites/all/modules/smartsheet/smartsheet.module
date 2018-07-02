@@ -1,0 +1,145 @@
+<?php
+
+use Drupal\smartsheet\SmartsheetAPI;
+use Drupal\smartsheet\Exception as Exception;
+
+define('SMARTSHEET_HTTP_API_BASE_URL', 'https://api.smartsheet.com/2.0/');
+
+// Register module namespace for PSR-4 autoloading.
+xautoload()->registerModulePsr4(__FILE__, 'src');
+
+/**
+ * Performs an HTTP request to the Smartsheet API.
+ *
+ * @param string $verb
+ *   The verb of the request, one of 'GET', 'POST', 'PUT' and 'DELETE'.
+ * @param string $path
+ *   The path of the request.
+ * @param array $parameters
+ *   (optional) An array of parameters for the request.
+ * @param array $options
+ *   (optional) An array that can have one or more of the following elements:
+ *   - cache: Set to one of the following values to enable caching of the results:
+ *     - CACHE_PERMANENT: Indicates that the item should never be removed unless
+ *       explicitly told to using cache_clear_all() with a cache ID.
+ *     - CACHE_TEMPORARY: Indicates that the item should be removed at the next
+ *       general cache wipe.
+ *     - A Unix timestamp: Indicates that the item should be kept at least until
+ *       the given time, after which it behaves like CACHE_TEMPORARY.
+ *
+ * @return object
+ *   An object that can have one or more of the following components:
+ *   - request: A string containing the request body that was sent.
+ *   - code: An integer containing the response status code, or the error code
+ *     if an error occurred.
+ *   - protocol: The response protocol (e.g. HTTP/1.1 or HTTP/1.0).
+ *   - status_message: The status message from the response, if a response was
+ *     received.
+ *   - redirect_code: If redirected, an integer containing the initial response
+ *     status code.
+ *   - redirect_url: If redirected, a string containing the URL of the redirect
+ *     target.
+ *   - error: If an error occurred, the error message. Otherwise not set.
+ *   - headers: An array containing the response headers as name/value pairs.
+ *     HTTP header names are case-insensitive (RFC 2616, section 4.2), so for
+ *     easy access the array keys are returned in lower case.
+ *   - data: A string containing the response body that was received.
+ *   - request_time: The timestamp of the request
+ *   - cache_hit: TRUE if the result is returned from the cache, FALSE otherwise.
+ */
+function smartsheet_api_request($verb, $path, array $parameters = array(), $options = array()) {
+  $url = SMARTSHEET_HTTP_API_BASE_URL . $path;
+  $data = NULL;
+
+  switch ($verb) {
+    case 'GET':
+      $url = url($url, array('query' => $parameters));
+      break;
+
+    case 'POST':
+    case 'PUT':
+      $headers['Content-Type'] = 'application/json';
+      // No break on purpose.
+
+    case 'DELETE':
+    default:
+      $data = json_encode($parameters);
+      break;
+  }
+
+  $cid = implode(':', array(__FUNCTION__, $path, $data));
+  if ($cache = cache_get($cid)) {
+    $response = $cache->data;
+    $response->cache_hit = TRUE;
+    return $response;
+  }
+
+  $token = trim(variable_get('smartsheet_access_token'));
+  $headers['Authorization'] = 'Bearer ' . $token;
+  $request_options = array(
+    'headers' => $headers,
+    'method' => $verb,
+    'data' => $data,
+  );
+
+  $response = drupal_http_request($url, $request_options);
+  $response->request_time = REQUEST_TIME;
+
+  if (isset($options['cache']) && $response->code == 200) {
+    cache_set($cid, $response, 'cache', $options['cache']);
+  }
+
+  $response->cache_hit = FALSE;
+
+  return $response;
+}
+
+/**
+ * Form submit callback; Inserts a row into a sheet.
+ */
+function smartsheet_form_submit($form, &$form_state) {
+  if (isset($form['#smartsheet_sheet_id']) && isset($form['#smartsheet_column_mapping'])) {
+    try {
+      $instance = SmartsheetAPI::instance();
+
+      $data['toBottom'] = TRUE;
+      $data['rows'][]['cells'] = array();
+
+      if ((!empty($form['#smartsheet_method'])) && $form['#smartsheet_method'] == 'names') {
+        $columns = $instance->get('sheets/' . $form['#smartsheet_sheet_id'] . '/columns');
+        foreach ($columns as $column) {
+          array_walk($form['#smartsheet_column_mapping'], function (&$value, $key) use ($column) {
+            if ($column->title == $value) {
+              $value = $column->id;
+            }
+          });
+        }
+      }
+
+      foreach (array_filter($form['#smartsheet_column_mapping'], 'is_int') as $field => $column_id) {
+        $value = $form_state['values'][$field];
+        if (isset($form[$field]['#options'])) {
+          $value = $form[$field]['#options'][$form_state['values'][$field]];
+          while (is_array($value)) {
+            $value = reset($value);
+          }
+        }
+
+        $data['rows'][0]['cells'][] = array(
+          'columnId' => $column_id,
+          'value' => $value,
+        );
+      }
+
+      $response = $instance->post('sheets/' . $form['#smartsheet_sheet_id'] . '/rows', $data);
+
+      $form_state['smartsheet'] = array(
+        'response_message' => $response->message,
+        'response_code' => $response->resultCode,
+      );
+    } catch (Exception\SmartsheetException $e) {
+      watchdog('smartsheet', $e->getMessage(), array(), WATCHDOG_WARNING);
+      drupal_set_message($e->getMessage(), 'warning');
+    }
+  }
+}

@@ -1,0 +1,173 @@
+<?php
+
+class SmartsheetApiRequestTestCase extends DrupalWebTestCase {
+
+  public static $expected_requests = array();
+
+  public static function getInfo() {
+    return array(
+      'name' => 'Smartsheet request API tests',
+      'description' => 'Test the <code>smartsheet_api_request()</code> function.',
+      'group' => 'Smartsheet',
+    );
+  }
+
+  public function setUp() {
+    parent::setUp();
+    $this->accessToken = self::randomString(32);
+    variable_set('smartsheet_access_token', $this->accessToken);
+    // Register an alternative drupal_http_request function.
+    SmartsheetApiRequestTestCase::$expected_requests = array();
+    variable_set('drupal_http_request_function', create_function('$url, $options', 'return SmartsheetApiRequestTestCase::drupal_http_request($url, $options);'));
+  }
+
+
+  public function testAuthorization() {
+    $method = 'GET';
+    $path = implode('/', [self::randomName(), self::randomName(), self::randomName()]);
+    $this->expectHttpRequest(SMARTSHEET_HTTP_API_BASE_URL . $path, array(
+      'method' => 'GET',
+      'headers' => array(
+        'Authorization' => "Bearer {$this->accessToken}",
+      )
+    ));
+
+    smartsheet_api_request($method, $path);
+    $this->assert(TRUE, "Should send the bearer token.");
+  }
+
+  public function testCache() {
+    $method = 'GET';
+    $path = implode('/', [self::randomName(), self::randomName(), self::randomName()]);
+    $this->expectHttpRequest(SMARTSHEET_HTTP_API_BASE_URL . $path, array(
+      'method' => 'GET',
+    ), self::randomString(64), 1);
+    $response1 = smartsheet_api_request($method, $path, array(), array('cache' => CACHE_PERMANENT));
+    $this->assertFalse($response1->cache_hit, "First response should not be returned from the cache.");
+    $response2 = smartsheet_api_request($method, $path, array(), array('cache' => CACHE_PERMANENT));
+    $this->assertTrue($response2->cache_hit, "Second response should be returned from the cache.");
+    unset($response1->cache_hit);
+    unset($response2->cache_hit);
+    $this->assertEqual($response1, $response2, "Both responses should be otherwise equal.");
+  }
+
+  public function testParameters() {
+    $path = implode('/', [self::randomName(), self::randomName(), self::randomName()]);
+    $parameters = array(
+      self::randomName() => self::randomName(),
+      self::randomName() => self::randomName(),
+      self::randomName() => self::randomName()
+    );
+    $url = url(SMARTSHEET_HTTP_API_BASE_URL . $path, array('query' => $parameters));
+    $this->expectHttpRequest($url, array('method' => 'GET'));
+    $url = SMARTSHEET_HTTP_API_BASE_URL . $path;
+    $self = $this;
+    $this->expectHttpRequest($url, array(
+      'method' => 'POST',
+      'headers' => array('Content-Type' => 'application/json')
+    ), function ($url, $options) use ($self, $parameters) {
+      $data = json_decode($options['data'], true);
+      $self->assertEqual(json_last_error(), JSON_ERROR_NONE, 'POST request\'s body should be a valid JSON value.');
+      $self->assertEqual($data, $parameters, 'POST request\'s body should be the JSON encoded parameters.');
+      return array();
+    });
+    $this->expectHttpRequest($url, array(
+      'method' => 'PUT',
+      'headers' => array('Content-Type' => 'application/json')
+    ), function ($url, $options) use ($self, $parameters) {
+      $data = json_decode($options['data'], true);
+      $self->assertEqual(json_last_error(), JSON_ERROR_NONE, 'PUT request\'s body should be a valid JSON value.');
+      $self->assertEqual($data, $parameters, 'PUT request\'s body should be the JSON encoded parameters.');
+      return array();
+    });
+
+    smartsheet_api_request('GET', $path, $parameters);
+    smartsheet_api_request('POST', $path, $parameters);
+    smartsheet_api_request('PUT', $path, $parameters);
+  }
+
+  /**
+   * Register an expected HTTP request and its response.
+   *
+   * @param $url
+   *   The expected request URL.
+   * @param $options
+   *   The expected request options.
+   * @param mixed $response
+   *   The response for the request. Either as an object as returned by
+   *   drupal_http_request(), an array (same structure), an integer
+   *   (status code) or as a string (response body).
+   * @param int $count
+   *   The number of time the request is expected (-1 for no limit)
+   */
+  public function expectHttpRequest($url, $options, $response = array(), $count = -1) {
+    // Merge the default options.
+    $options += array(
+      'headers' => array(),
+      'method' => 'GET',
+      'data' => NULL,
+      'max_redirects' => 3,
+      'timeout' => 30.0,
+      'context' => NULL,
+    );
+    // Merge default response.
+    if (!is_callable($response)) {
+      if (is_object($response)) {
+        $response = (array) $response;
+      }
+      if (is_int($response)) {
+        $response = array('code' => $response);
+      }
+      if (is_string($response)) {
+        $response = array('data' => $response);
+      }
+    }
+    self::$expected_requests[] = array(
+      'url' => $url,
+      'options' => $options,
+      'response' => $response,
+      'count' => $count
+    );
+  }
+
+  /**
+   * Mock implementation of drupal_http_request().
+   *
+   * @param $url
+   * @param array $options
+   *
+   * @return object
+   *   The registered response for the request.
+   *
+   * @throws \Exception
+   *  If no matching request as been registered as expected.
+   */
+  public static function drupal_http_request($url, array $options = array()) {
+    foreach (self::$expected_requests as $key => $expected_request) {
+      if ($expected_request['count'] != 0) {
+        if ($url == $expected_request['url'] && $options['method'] == $expected_request['options']['method']) {
+          // Matching path and method.
+          $headers_match = true;
+          foreach ($expected_request['options']['headers'] as $name => $value) {
+            $headers_match &= $options['headers'][$name] == $value;
+          }
+          if ($headers_match) {
+            $expected_request['count'] -= 1;
+            $response = (array) (is_callable($expected_request['response']) ? $expected_request['response']($url, $options) : $expected_request['response']);
+            $response += array(
+              'request' => "",
+              'code' => 200,
+              'protocol' => "HTTP/1.1",
+              'status_message' => "OK",
+              'headers' => array(),
+              'data' => ""
+            );
+            return (object) $response;
+          }
+        }
+      }
+    }
+    throw new Exception("Unexpected HTTP request: $url " . var_export($options, true));
+  }
+
+}

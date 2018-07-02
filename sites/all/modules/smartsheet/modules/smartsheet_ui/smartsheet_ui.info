@@ -1,0 +1,13 @@
+name = Smartsheet UI
+description = Administrative interface for Smartsheet module.
+core = 7.x
+package = Smartsheet
+dependencies[] = smartsheet
+configure = admin/config/services/smartsheet
+
+; Information added by Drupal.org packaging script on 2016-08-10
+version = "7.x-2.0"
+core = "7.x"
+project = "smartsheet"
+datestamp = "1470861544"
+

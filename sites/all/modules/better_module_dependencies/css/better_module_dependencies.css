@@ -1,0 +1,15 @@
+
+/**
+ * @file
+ * Better Module Dependencies.
+ *
+ */
+
+#system-modules div.admin-requirements span.better-module-dependencies-selector:hover {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+#system-modules div.admin-requirements a.better-module-dependencies-link {
+  color: #444;
+}

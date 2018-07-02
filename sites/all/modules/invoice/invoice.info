@@ -1,0 +1,11 @@
+name = Invoice
+description = "Module to create invoices"
+core = 7.x
+version = "7.x-1.x-dev"
+php = 5.2.5
+; Information added by Drupal.org packaging script on 2015-04-19
+version = "7.x-1.3"
+core = "7.x"
+project = "invoice"
+datestamp = "1429457591"
+
